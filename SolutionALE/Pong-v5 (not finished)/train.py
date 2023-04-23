@@ -2,7 +2,7 @@ import argparse
 
 import gymnasium as gym
 import torch
-
+from gymnasium.wrappers import AtariPreprocessing
 import config
 from utils import preprocess
 from evaluate import evaluate_policy
@@ -27,6 +27,11 @@ if __name__ == '__main__':
     env = gym.make(args.env)
     env_config = ENV_CONFIGS[args.env]
 
+    if args.env.startswith("ALE/"):
+    # Atari env, defalut settings
+    # scale_obs = True, rescales observations from 0-255 to [0-1)
+        env = AtariPreprocessing(env, screen_size = 84, grayscale_obs = True, frame_skip = 1, noop_max = 30, scale_obs = True)
+
     # Initialize deep Q-networks.
     dqn = DQN(env_config=env_config).to(device)
     # Create and initialize target Q-network.
@@ -44,39 +49,37 @@ if __name__ == '__main__':
     best_mean_return = -float("Inf")
 
     for episode in range(env_config['n_episodes']):
+        
         terminated = False
         obs, info = env.reset()
-
         obs = preprocess(obs, env=args.env).unsqueeze(0)
         obs_stack = torch.cat(env_config['obs_stack_size'] * [obs]).unsqueeze(0).to(device)
-        
         steps = 0
+
         while not terminated:
-            # TODO: Get action from DQN.
-            action = dqn.act(obs).to(device)
+            # Get action from DQN.
+            action = dqn.act(obs_stack).to(device)
 
             # Act in the true environment.
-            obs_next, reward, terminated, truncated, info = env.step(action.item())
-
-            # TODO: Add the transition to the replay memory. Remember to convert
-            #       everything to PyTorch tensors!
+            # Add + 1 so that we map action 0, 1, 2 to 1 ,2, 3 thereby enabling all possible paddle controls.
+            obs_next, reward, terminated, truncated, info = env.step(action.item() + 1)
 
             # This is weird because terminal transitions are not preprocessed?! So we don't want to send this to mem?
             # Preprocess incoming observation.
             if not terminated:
                 obs_next = preprocess(obs_next, env=args.env).unsqueeze(0)
                 next_obs_stack = torch.cat((obs_stack[:, 1:, ...], obs_next.unsqueeze(1)), dim=1).to(device)
-                memory.push(obs, action.unsqueeze(0), obs_next, torch.tensor([reward]), torch.tensor([terminated]).int())
+                memory.push(obs_stack, action.unsqueeze(0), next_obs_stack, torch.tensor([reward]), torch.tensor([terminated]).int())
             
-            # TODO: Run DQN.optimize() every env_config["train_frequency"] steps.
+            # Run DQN.optimize() every env_config["train_frequency"] steps.
             if steps % env_config['train_frequency'] == 0:
                 optimize(dqn, dqnTarget, memory, optimizer)
 
             #  Update the target network every env_config["target_update_frequency"] steps.
             if steps % env_config['target_update_frequency'] == 0:
                 dqnTarget = dqn
-
-            obs = obs_next    
+            # Update obs stack 
+            obs_stack = next_obs_stack    
             steps +=1
         
         # Evaluate the current agent.
@@ -89,7 +92,7 @@ if __name__ == '__main__':
                 best_mean_return = mean_return
 
                 print('Best performance so far! Saving model.')
-                torch.save(dqn, f'models/{args.env}_best.pt')
+                #torch.save(dqn, f'models/{args.env}_best.pt')
         
     # Close environment after training is completed.
     env.close()

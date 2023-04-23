@@ -46,5 +46,5 @@ Pong = {
     'eps_start': 1.0,
     'eps_end': 0.01,
     'anneal_length': 10**6,
-    'n_actions': 6,
+    'n_actions': 3,
 }

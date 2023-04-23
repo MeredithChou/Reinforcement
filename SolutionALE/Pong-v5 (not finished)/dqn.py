@@ -63,6 +63,8 @@ class DQN(nn.Module):
         x = self.relu(self.conv1(x))
         x = self.relu(self.conv2(x))
         x = self.relu(self.conv3(x))
+        # Flatten output for fully connected layers
+        x = self.flatten(x)
         x = self.relu(self.fc1(x))
         x = self.fc2(x)
 
@@ -76,14 +78,18 @@ class DQN(nn.Module):
         #       takes an observation tensor and should return a tensor of actions.
         #       For example, if the state dimension is 4 and the batch size is 32,
         #       the input would be a [32, 4] tensor and the output a [32, 1] tensor.
-        # TODO: Implement epsilon-greedy exploration.
+        # Implement epsilon-greedy exploration.
         
         # Sample uniform random number
         r = random.random()
 
+        # Actions 1: FIRE/NOOP, 2: DOWN, 3: UP.
+        # Note the tensors are originally in the range [0,2]
+        # So we need to adjust this so the agent can take all actions.
+        # This is done in train.py for simplicity 
         if r < self.eps and exploit is False:
             # Generate random index =
-            action =  torch.tensor([random.randrange(self.n_actions)])
+            action = torch.tensor([random.randrange(self.n_actions)])
         else:
             # Greedy action
             action = torch.argmax(self.forward(observation), dim = 1)
@@ -102,7 +108,7 @@ def optimize(dqn, target_dqn, memory, optimizer):
     if len(memory) < dqn.batch_size:
         return
 
-    # TODO: Sample a batch from the replay memory and concatenate so that there are
+    # Sample a batch from the replay memory and concatenate so that there are
     #       four tensors in total: observations, actions, next observations and rewards.
     #       Remember to move them to GPU if it is available, e.g., by using Tensor.to(device).
     #       Note that special care is needed for terminal transitions!
@@ -111,24 +117,18 @@ def optimize(dqn, target_dqn, memory, optimizer):
     # Get sample
     obs, action, next_obs, reward, terminated = memory.sample(dqn.batch_size)
 
-    obs = torch.cat(obs, dim=0).to(device)
+    # Concatenate obs stacks
+    obs = torch.cat(obs).to(device)
     action = torch.cat(action).to(device)
-    next_obs = torch.cat(next_obs, dim = 0).to(device)
+    next_obs = torch.cat(next_obs).to(device)
     reward = torch.cat(reward).to(device)
     terminated = torch.cat(terminated).to(device)
 
-
-    # TODO: Compute the current estimates of the Q-values for each state-action
+    # Compute the current estimates of the Q-values for each state-action
     
     #       pair (s,a). Here, torch.gather() is useful for selecting the Q-values
     #       corresponding to the chosen actions.
     
-    #.forward returns a tensor (matrix) #obs x n_actions.
-    # So for CartPole-v1 that is 32 rows * 2 col
-    # Now we want to select the actual action taken in the transition.
-    # This can be given as the index for the .gather method.
-    # when specifiying dim = 1, we're saying get the element in column with index given by action for each row.
-
     q_values = torch.gather(dqn.forward(obs), dim = 1, index = action).to(device)
     # Compute the Q-value targets. Only do this for non-terminal transitions!
     q_max, arg_max = torch.max(target_dqn.forward(next_obs), dim = 1)
