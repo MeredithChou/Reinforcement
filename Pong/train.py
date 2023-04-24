@@ -1,5 +1,4 @@
 import argparse
-
 import gymnasium as gym
 import torch
 from gymnasium.wrappers import AtariPreprocessing

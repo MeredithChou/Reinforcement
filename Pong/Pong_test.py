@@ -11,7 +11,6 @@ ENV_CONFIGS = {
     'CartPole-v1': config.CartPole,
     'ALE/Pong-v5': config.Pong
 }
-
 class ReplayMemory:
     def __init__(self, capacity):
         self.capacity = capacity
