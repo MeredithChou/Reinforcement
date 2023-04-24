@@ -1,10 +1,16 @@
+import gymnasium as gym
 import random
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
+import config
+from utils import preprocess
+from gymnasium.wrappers import AtariPreprocessing
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
+ENV_CONFIGS = {
+    'CartPole-v1': config.CartPole,
+    'ALE/Pong-v5': config.Pong
+}
 
 class ReplayMemory:
     def __init__(self, capacity):
@@ -19,8 +25,6 @@ class ReplayMemory:
         # Append none to init mem-space in list
         if len(self.memory) < self.capacity:
             self.memory.append(None)
-        # Slightly modification to replay memory, also show if if the next_obs terminates emulation
-        
         # Assign tensor tuple to mem pos.
         self.memory[self.position] = (obs, action, next_obs, reward, terminated)
         # When mem is full, overwrite
@@ -49,14 +53,21 @@ class DQN(nn.Module):
         self.anneal_length = env_config["anneal_length"]
         self.n_actions = env_config["n_actions"]
         
-        self.fc1 = nn.Linear(4, 256)
-        self.fc2 = nn.Linear(256, self.n_actions)
+        self.conv1 = nn.Conv2d(4, 32, kernel_size=8, stride=4, padding=0)
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=4, stride=2, padding=0)
+        self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=0)
+        self.fc1 = nn.Linear(3136, 512)
+        self.fc2 = nn.Linear(512, self.n_actions)
 
         self.relu = nn.ReLU()
         self.flatten = nn.Flatten()
 
     def forward(self, x):
         """Runs the forward pass of the NN depending on architecture."""
+        x = self.relu(self.conv1(x))
+        x = self.relu(self.conv2(x))
+        x = self.relu(self.conv3(x))
+        x = self.flatten(x)
         x = self.relu(self.fc1(x))
         x = self.fc2(x)
 
@@ -90,51 +101,39 @@ class DQN(nn.Module):
         #self.eps_start += 
         return action
 
-def optimize(dqn, target_dqn, memory, optimizer):
-    """This function samples a batch from the replay buffer and optimizes the Q-network."""
-    # If we don't have enough transitions stored yet, we don't train.
-    if len(memory) < dqn.batch_size:
-        return
 
-    # TODO: Sample a batch from the replay memory and concatenate so that there are
-    #       four tensors in total: observations, actions, next observations and rewards.
-    #       Remember to move them to GPU if it is available, e.g., by using Tensor.to(device).
-    #       Note that special care is needed for terminal transitions!
-
-
-    # Get sample
-    obs, action, next_obs, reward, terminated = memory.sample(dqn.batch_size)
-
-    obs = torch.cat(obs, dim=0).to(device)
-    action = torch.cat(action).to(device)
-    next_obs = torch.cat(next_obs, dim = 0).to(device)
-    reward = torch.cat(reward).to(device)
-    terminated = torch.cat(terminated).to(device)
-
-
-    # TODO: Compute the current estimates of the Q-values for each state-action
+if __name__ == "__main__":
     
-    #       pair (s,a). Here, torch.gather() is useful for selecting the Q-values
-    #       corresponding to the chosen actions.
-    
-    #.forward returns a tensor (matrix) #obs x n_actions.
-    # So for CartPole-v1 that is 32 rows * 2 col
-    # Now we want to select the actual action taken in the transition.
-    # This can be given as the index for the .gather method.
-    # when specifiying dim = 1, we're saying get the element in column with index given by action for each row.
+    env_arg = "ALE/Pong-v5"
+    env = gym.make(env_arg)
+    env = AtariPreprocessing(env, screen_size = 84, grayscale_obs = True, frame_skip = 1, noop_max = 30, scale_obs = True)
+    env_config = ENV_CONFIGS[env_arg]
+    memory = ReplayMemory(env_config['memory_size'])
+    dqn =  DQN(env_config=env_config).to(device)
+    target_dqn = DQN(env_config=env_config).to(device)
 
+    for episode in range(10):
+        terminated = False
+        obs, info  = env.reset()
+        obs = preprocess(obs, env=env_arg).unsqueeze(0)
+        obs_stack = torch.cat(env_config['obs_stack_size'] * [obs]).unsqueeze(0).to(device)
+        while not terminated:
+            action = dqn.act(obs_stack)
+            obs_next, reward, terminated, truncated, info = env.step(0)
+            obs_next = preprocess(obs_next, env=env_arg).unsqueeze(0)
+            next_obs_stack = torch.cat((obs_stack[:, 1:, ...], obs_next.unsqueeze(1)), dim=1).to(device)
+            memory.push(obs_stack, action.unsqueeze(0), next_obs_stack, torch.tensor([reward]), torch.tensor([terminated]).int())
+            obs_stack = next_obs_stack
+    env.close()
+    sample_obs, sample_action, sample_obs_next, sample_reward, sample_terminated = memory.sample(6)
+    obs = torch.cat(sample_obs).to(device)
+    print(obs.size())
+    action = torch.cat(sample_action).to(device)
+    obs_next = torch.cat(sample_obs_next).to(device)
+    reward = torch.cat(sample_reward).to(device)
+    terminated = torch.cat(sample_terminated).to(device)
+    
     q_values = torch.gather(dqn.forward(obs), dim = 1, index = action).to(device)
-    # Compute the Q-value targets. Only do this for non-terminal transitions!
-    q_max, arg_max = torch.max(target_dqn.forward(next_obs), dim = 1)
-    q_value_targets = reward + (1-terminated)*(target_dqn.gamma*q_max)
+    max_vals, max_args = torch.max(target_dqn.forward(obs_next), dim = 1)
+    q_value_targets = reward + (1-terminated)*(target_dqn.gamma*max_vals)
 
-    # Compute loss.
-    loss = F.mse_loss(q_values.squeeze(), q_value_targets)
-
-    # Perform gradient descent.
-    optimizer.zero_grad()
-
-    loss.backward()
-    optimizer.step()
-
-    return loss.item()

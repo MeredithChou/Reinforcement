@@ -9,7 +9,7 @@ from utils import preprocess
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--env', choices=['CartPole-v1'], default='CartPole-v1')
+parser.add_argument('--env', choices=['ALE/Pong-v5'], default='ALE/Pong-v5')
 parser.add_argument('--path', type=str, help='Path to stored DQN model.')
 parser.add_argument('--n_eval_episodes', type=int, default=1, help='Number of evaluation episodes.', nargs='?')
 parser.add_argument('--render', dest='render', action='store_true', help='Render the environment.')
@@ -19,7 +19,7 @@ parser.set_defaults(save_video=False)
 
 # Hyperparameter configurations for different environments. See config.py.
 ENV_CONFIGS = {
-    'CartPole-v1': config.CartPole,
+    'ALE/Pong-v5': config.Pong,
 }
 
 
@@ -29,6 +29,7 @@ def evaluate_policy(dqn, env, env_config, args, n_episodes, render=False, verbos
     for i in range(n_episodes):
         obs, info = env.reset()
         obs = preprocess(obs, env=args.env).unsqueeze(0)
+        obs_stack = torch.cat(env_config['obs_stack_size'] * [obs]).unsqueeze(0).to(device)
 
         terminated = False
         episode_return = 0
@@ -37,9 +38,10 @@ def evaluate_policy(dqn, env, env_config, args, n_episodes, render=False, verbos
             if render:
                 env.render()
 
-            action = dqn.act(obs, exploit=True).item()
+            action = dqn.act(obs_stack, exploit=True).item()
             obs, reward, terminated, truncated, info = env.step(action)
             obs = preprocess(obs, env=args.env).unsqueeze(0)
+            obs_stack = torch.cat(env_config['obs_stack_size'] * [obs]).unsqueeze(0).to(device)
 
             episode_return += reward
         
