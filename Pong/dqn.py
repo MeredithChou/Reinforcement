@@ -5,6 +5,7 @@ import torch.nn.functional as F
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+
 class ReplayMemory:
     def __init__(self, capacity):
         self.capacity = capacity
@@ -94,11 +95,12 @@ class DQN(nn.Module):
             action = torch.argmax(self.forward(observation), dim = 1)
         
         # Adjust epsilon
-        if self.eps > self.eps_end + 1/self.anneal_length:
-            self.eps -= 1/self.anneal_length
+        if self.eps > self.eps_end + 4/self.anneal_length:
+            # In the article eps is decrease linearly over 1e6 frames, but since we only see every 4th frame
+            # because of skipping, should eps thus be decreased by 4 * 1/ anneal_len?
+            self.eps -= 4/self.anneal_length
         else:
             self.eps = self.eps_end
-        #self.eps_start += 
         return action
 
 def optimize(dqn, target_dqn, memory, optimizer):

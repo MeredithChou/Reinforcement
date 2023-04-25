@@ -11,7 +11,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--env', choices=['ALE/Pong-v5'], default='ALE/Pong-v5')
-parser.add_argument('--evaluate_freq', type=int, default=25, help='How often to run evaluation.', nargs='?')
+parser.add_argument('--evaluate_freq', type=int, default=50, help='How often to run evaluation.', nargs='?')
 parser.add_argument('--evaluation_episodes', type=int, default=5, help='Number of evaluation episodes.', nargs='?')
 
 # Hyperparameter configurations for different environments. See config.py.
@@ -36,7 +36,6 @@ if __name__ == '__main__':
     # Create and initialize target Q-network.
     dqnTarget = DQN(env_config=env_config).to(device)
 
-
     # Create replay memory.
     memory = ReplayMemory(env_config['memory_size'])
 
@@ -47,13 +46,15 @@ if __name__ == '__main__':
     # Keep track of best evaluation mean return achieved so far.
     best_mean_return = -float("Inf")
 
+    steps = 0
+    updates = 0
+
     for episode in range(env_config['n_episodes']):
         
         terminated = False
         obs, info = env.reset()
         obs = preprocess(obs, env=args.env).unsqueeze(0)
         obs_stack = torch.cat(env_config['obs_stack_size'] * [obs]).unsqueeze(0).to(device)
-        steps = 0
 
         while not terminated:
             # Get action from DQN.
@@ -61,22 +62,25 @@ if __name__ == '__main__':
 
             # Act in the true environment.
             # Add + 1 so that we map action 0, 1, 2 to 1 ,2, 3 thereby enabling all possible paddle controls.
-            obs_next, reward, terminated, truncated, info = env.step(action.item() + 1)
+            obs_next, reward, terminated, truncated, info = env.step(action.item() + 2)
 
             # This is weird because terminal transitions are not preprocessed?! So we don't want to send this to mem?
             # Preprocess incoming observation.
-            if not terminated:
-                obs_next = preprocess(obs_next, env=args.env).unsqueeze(0)
-                next_obs_stack = torch.cat((obs_stack[:, 1:, ...], obs_next.unsqueeze(1)), dim=1).to(device)
-                memory.push(obs_stack, action.unsqueeze(0), next_obs_stack, torch.tensor([reward]), torch.tensor([terminated]).int())
+            #if not terminated:
+            obs_next = preprocess(obs_next, env=args.env).unsqueeze(0)
+            next_obs_stack = torch.cat((obs_stack[:, 1:, ...], obs_next.unsqueeze(1)), dim=1).to(device)
+            memory.push(obs_stack, action.unsqueeze(0), next_obs_stack, torch.tensor([reward]), torch.tensor([terminated]).int())
             
             # Run DQN.optimize() every env_config["train_frequency"] steps.
             if steps % env_config['train_frequency'] == 0:
                 optimize(dqn, dqnTarget, memory, optimizer)
+                updates += 1
+                steps = 1
 
             #  Update the target network every env_config["target_update_frequency"] steps.
-            if steps % env_config['target_update_frequency'] == 0:
+            if updates % env_config['target_update_frequency'] == 0:
                 dqnTarget = dqn
+                updates = 1
             # Update obs stack 
             obs_stack = next_obs_stack    
             steps +=1
@@ -90,7 +94,7 @@ if __name__ == '__main__':
             if mean_return >= best_mean_return:
                 best_mean_return = mean_return
 
-                print('Best performance so far! Saving model.')
+                #print('Best performance so far! Saving model.')
                 #torch.save(dqn, f'models/{args.env}_best.pt')
         
     # Close environment after training is completed.

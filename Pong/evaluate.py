@@ -39,10 +39,13 @@ def evaluate_policy(dqn, env, env_config, args, n_episodes, render=False, verbos
                 env.render()
 
             action = dqn.act(obs_stack, exploit=True).item()
-            obs, reward, terminated, truncated, info = env.step(action)
+            # Also need to map action correcely here so we add + 2
+            obs, reward, terminated, truncated, info = env.step(action + 2)
             obs = preprocess(obs, env=args.env).unsqueeze(0)
-            obs_stack = torch.cat(env_config['obs_stack_size'] * [obs]).unsqueeze(0).to(device)
-
+            # eeeehhhhh????
+            # obs_stack = torch.cat(env_config['obs_stack_size'] * [obs]).unsqueeze(0).to(device)
+            # It should be:
+            obs_stack = torch.cat((obs_stack[:, 1:, ...], obs.unsqueeze(1)), dim=1).to(device)
             episode_return += reward
         
         total_return += episode_return
