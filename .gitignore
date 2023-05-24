@@ -1,9 +1,13 @@
 # Don't save networks.obj to git
-networks.obj
+*.obj
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
+# Don't save push this stuff
+models/
+*.csv
+video/
 
 # C extensions
 *.so

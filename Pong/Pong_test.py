@@ -2,6 +2,7 @@ import gymnasium as gym
 import random
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import config
 from utils import preprocess
 from gymnasium.wrappers import AtariPreprocessing
@@ -112,28 +113,71 @@ if __name__ == "__main__":
     dqn =  DQN(env_config=env_config).to(device)
     target_dqn = DQN(env_config=env_config).to(device)
 
-    for episode in range(10):
+    for episode in range(30):
         terminated = False
         obs, info  = env.reset()
         obs = preprocess(obs, env=env_arg).unsqueeze(0)
         obs_stack = torch.cat(env_config['obs_stack_size'] * [obs]).unsqueeze(0).to(device)
         while not terminated:
             action = dqn.act(obs_stack)
-            obs_next, reward, terminated, truncated, info = env.step(0)
+            obs_next, reward, terminated, truncated, info = env.step(action.item() + 2)
             obs_next = preprocess(obs_next, env=env_arg).unsqueeze(0)
             next_obs_stack = torch.cat((obs_stack[:, 1:, ...], obs_next.unsqueeze(1)), dim=1).to(device)
             memory.push(obs_stack, action.unsqueeze(0), next_obs_stack, torch.tensor([reward]), torch.tensor([terminated]).int())
             obs_stack = next_obs_stack
     env.close()
-    sample_obs, sample_action, sample_obs_next, sample_reward, sample_terminated = memory.sample(6)
-    obs = torch.cat(sample_obs).to(device)
-    print(obs.size())
-    action = torch.cat(sample_action).to(device)
-    obs_next = torch.cat(sample_obs_next).to(device)
-    reward = torch.cat(sample_reward).to(device)
-    terminated = torch.cat(sample_terminated).to(device)
+    
+    
+    obs, action, next_obs, reward, terminated = memory.sample(4)
+
+    # Concatenate obs stacks
+    obs = torch.cat(obs).to(device)
+    action = torch.cat(action).to(device)
+    next_obs = torch.cat(next_obs).to(device)
+    reward = torch.cat(reward).to(device)
+    terminated = torch.cat(terminated).to(device)
+
+    print("----obs-----")
+    print(obs)
+    print()
+    print("---action----")
+    print(action)
+    print()
+    print("----next_obs----")
+    print(next_obs)
+    print()
+    print("----reward-----")
+    print(reward)
+    print()
+    print("----terminated-----")
+    print(terminated)
+
+    # Compute the current estimates of the Q-values for each state-action
+    
+    #       pair (s,a). Here, torch.gather() is useful for selecting the Q-values
+    #       corresponding to the chosen actions.
     
     q_values = torch.gather(dqn.forward(obs), dim = 1, index = action).to(device)
-    max_vals, max_args = torch.max(target_dqn.forward(obs_next), dim = 1)
-    q_value_targets = reward + (1-terminated)*(target_dqn.gamma*max_vals)
+    print("dqn forward pass:")
+    print(dqn.forward(obs))
+    print("actions:")
+    print(action)
+    print("q_values:")
+    print(q_values)
+    
+    # Compute the Q-value targets. Only do this for non-terminal transitions!
+    q_max, arg_max = torch.max(target_dqn.forward(next_obs), dim = 1)
+    print("target_dqn forward pass:")
+    print(target_dqn.forward(next_obs))
+    print("Selected max:")
+    print(q_max)
+    q_value_targets = reward + (1-terminated)*(target_dqn.gamma*q_max)
 
+    # Compute loss.
+    print("q_val:", q_values.squeeze())
+    print("q_val_target:(squeezed)",q_value_targets.squeeze())
+    print("q_val_targets: unsqueezed:", q_value_targets)
+    loss1 = F.mse_loss(q_values.squeeze(),q_value_targets.squeeze())
+    loss2 = F.mse_loss(q_values.squeeze(), q_value_targets)
+    print(loss1.item())
+    print(loss2.item())

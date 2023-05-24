@@ -1,10 +1,9 @@
 import argparse
-
 import gymnasium as gym
 import torch
-
 import config
 from utils import preprocess
+from gymnasium.wrappers import AtariPreprocessing
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -20,6 +19,7 @@ parser.set_defaults(save_video=False)
 # Hyperparameter configurations for different environments. See config.py.
 ENV_CONFIGS = {
     'ALE/Pong-v5': config.Pong,
+    'ALE/Breakout-v5': config.Breakout
 }
 
 
@@ -40,7 +40,7 @@ def evaluate_policy(dqn, env, env_config, args, n_episodes, render=False, verbos
 
             action = dqn.act(obs_stack, exploit=True).item()
             # Also need to map action correcely here so we add + 2
-            obs, reward, terminated, truncated, info = env.step(action + 2)
+            obs, reward, terminated, truncated, info = env.step(action + 1)
             obs = preprocess(obs, env=args.env).unsqueeze(0)
             # eeeehhhhh????
             # obs_stack = torch.cat(env_config['obs_stack_size'] * [obs]).unsqueeze(0).to(device)
@@ -66,6 +66,11 @@ if __name__ == '__main__':
     if args.save_video:
         env = gym.make(args.env, render_mode='rgb_array')
         env = gym.wrappers.RecordVideo(env, './video/', episode_trigger=lambda episode_id: True)
+
+    if args.env.startswith("ALE/"):
+    # Atari env, defalut settings
+    # scale_obs = True, rescales observations from 0-255 to [0-1)
+        env = AtariPreprocessing(env, screen_size = 84, grayscale_obs = True, frame_skip = 1, noop_max = 30, scale_obs = True)
 
     # Load model from provided path.
     # dqn = torch.load(args.path, map_location=torch.device('cpu'))"
